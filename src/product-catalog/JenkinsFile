@@ -1,0 +1,90 @@
+pipeline {
+  agent {
+    docker {
+      image 'golang:1.21'
+      args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // mount Docker socket to access the host's Docker daemon
+    }
+  }
+  stages {
+    stage('Checkout') {
+      steps {
+        sh 'echo passed'
+        //git branch: 'main', url: 'https://github.com/PawanPatankar/Jenkins-Zero-To-Hero.git'
+      }
+    }
+    stage('Build and Test') {
+      steps {
+        sh '''
+        cd src/product-catalog
+        go mod download
+        go build -o product-catalog-service main.go
+        '''
+      }
+    }
+    stage('Static Code Analysis') {
+      environment {
+        SONAR_URL = "http://13.127.202.74:9000"
+      }
+      steps {
+        withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
+            sh '''
+            cd src/product-catalog
+            sonar-scanner \
+              -Dsonar.projectKey=product-catalog \
+              -Dsonar.sources=. \
+              -Dsonar.host.url=${SONAR_URL} \
+              -Dsonar.login=${SONAR_AUTH_TOKEN} \
+              -Dsonar.language=go \
+              -Dsonar.sourceEncoding=UTF-8
+            '''
+        }
+      }
+    }
+    stage('Build and Push Docker Image') {
+      environment {
+        DOCKER_IMAGE = "pawan03/product-catalog:${BUILD_NUMBER}"
+        // DOCKERFILE_LOCATION = "java-maven-sonar-argocd-helm-k8s/spring-boot-app/Dockerfile"
+        REGISTRY_CREDENTIALS = credentials('docker-cred')
+      }
+      steps {
+        script {
+            sh '''
+                cd src/product-catalog
+                docker build -t ${DOCKER_IMAGE} .
+            '''
+            def dockerImage = docker.image("${DOCKER_IMAGE}")
+            docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
+                dockerImage.push()
+            }
+        }
+      }
+    }
+    stage('Update Deployment File') {
+        environment {
+            GIT_REPO_NAME = "ultimate-devops-project-demo"
+            GIT_USER_NAME = "PawanPatankar"
+        }
+        steps {
+            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                    git config user.email "pawan.xyz@gmail.com"
+                    git config user.name "Pawan Patankar"
+                    // BUILD_NUMBER=${BUILD_NUMBER}
+                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" /kubernetes/productcatalog/deploy.yml
+                    git add /kubernetes/productcatalog/deploy.yml
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+                '''
+            }
+        }
+    }
+  }
+post {
+        success {
+            echo "Deployment successful!"
+        }
+        failure {
+            echo "Deployment failed!"
+        }
+    }
+}
