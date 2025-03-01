@@ -25,7 +25,7 @@ pipeline {
     }
     stage('Static Code Analysis') {
       environment {
-        SONAR_URL = "http://13.127.202.74:9000"
+        SONAR_URL = "http://65.2.170.208:9000"
       }
       steps {
         withCredentials([string(credentialsId: 'sonarqube', variable: 'SONAR_AUTH_TOKEN')]) {
@@ -61,10 +61,10 @@ pipeline {
         steps {
             withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
                 sh '''
-                    git config user.email "pawan.xyz@gmail.com"
+                    git config user.email "patankar@gmail.com"
                     git config user.name "Pawan Patankar"
                     // BUILD_NUMBER=${BUILD_NUMBER}
-                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" /kubernetes/productcatalog/deploy.yml
+                    sed -i "s|image: .*|image: ${ secrets.DOCKER_USERNAME }/product-catalog:${BUILD_NUMBER}|" kubernetes/productcatalog/deploy.yaml
                     git add /kubernetes/productcatalog/deploy.yml
                     git commit -m "Update deployment image to version ${BUILD_NUMBER}"
                     git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
